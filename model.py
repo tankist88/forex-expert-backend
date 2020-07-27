@@ -115,7 +115,7 @@ def create_features(data):
     return new_data
 
 
-def read_data(files):
+def read_data(files, instrument, period):
     data_frames = []
 
     for file in files:
@@ -158,12 +158,12 @@ def read_data(files):
 
     x_shuffled, y_shuffled = shuffle(x, y)
 
-    joblib.dump(scaler, SCALER_FILENAME)
+    joblib.dump(scaler, str(instrument) + "_" + str(period) + SCALER_FILENAME)
 
     return x_shuffled, y_shuffled
 
 
-def train_model(x, y):
+def train_model(x, y, instrument, period):
     x = np.expand_dims(x, axis=3)
 
     x_train, x_valid, y_train, y_valid = train_test_split(x, y, test_size=0.1, random_state=42)
@@ -175,7 +175,7 @@ def train_model(x, y):
               validation_data=(x_valid, y_valid),
               callbacks=[
                   ModelCheckpoint(
-                      filepath=MODEL_FILENAME,
+                      filepath=str(instrument) + "_" + str(period) + MODEL_FILENAME,
                       save_best_only=True,
                       monitor='val_loss',
                       save_weights_only=False,
@@ -183,19 +183,21 @@ def train_model(x, y):
               verbose=2)
 
 
-def predict_trend(frame, model=None, scaler=None):
+def predict_trend(frame, instrument, period, model=None, scaler=None):
     if frame.shape[0] != FRAME_LENGTH:
         print("Invalid frame length!")
         return "NONE"
 
-    if model is None and os.path.isfile(MODEL_FILENAME):
-        model = load_model(MODEL_FILENAME, custom_objects={'f1': f1})
+    model_file = str(instrument) + "_" + str(period) + MODEL_FILENAME
+    if model is None and os.path.isfile(model_file):
+        model = load_model(model_file, custom_objects={'f1': f1})
     elif model is None:
         print("Model not found!")
         return "NONE"
 
-    if scaler is None and os.path.isfile(SCALER_FILENAME):
-        scaler = joblib.load(SCALER_FILENAME)
+    scaler_file = str(instrument) + "_" + str(period) + SCALER_FILENAME
+    if scaler is None and os.path.isfile(scaler_file):
+        scaler = joblib.load(scaler_file)
     elif scaler is None:
         print("Scaler not found!")
         return "NONE"
@@ -203,7 +205,7 @@ def predict_trend(frame, model=None, scaler=None):
     scaled_data = scaler.transform(create_features(pd.DataFrame(frame)))
 
     frames = []
-    copy_sub_frame(0, len(scaled_data), scaled_data, frames)
+    copy_sub_frame(0, FRAME_LENGTH, scaled_data, frames)
 
     y_pred = model.predict(np.expand_dims(np.asarray(frames), axis=3))
 
@@ -217,9 +219,12 @@ def predict_trend(frame, model=None, scaler=None):
         return "NONE"
 
 
-def test_model(data_file):
-    model = load_model(MODEL_FILENAME, custom_objects={'f1': f1})
-    scaler = joblib.load(SCALER_FILENAME)
+def test_model(data_file, instrument, period):
+    model_file = str(instrument) + "_" + str(period) + MODEL_FILENAME
+    scaler_file = str(instrument) + "_" + str(period) + SCALER_FILENAME
+
+    model = load_model(model_file, custom_objects={'f1': f1})
+    scaler = joblib.load(scaler_file)
 
     data = pd.read_csv(data_file)
     data = data.drop(columns=DROP_COLUMNS)
@@ -236,7 +241,7 @@ def test_model(data_file):
             frame.append(data.iloc[j])
         frame = np.asarray(frame)
 
-        trend = predict_trend(frame, model, scaler)
+        trend = predict_trend(frame, instrument, period, model, scaler)
 
         close0 = data.iloc[i][3] * SCALE
         close1 = data.iloc[i - 1][3] * SCALE
@@ -278,6 +283,6 @@ def test_model(data_file):
 
 
 if __name__ == '__main__':
-    features, labels = read_data(['data/train.csv'])
-    train_model(features, labels)
-    test_model('data/test.csv')
+    features, labels = read_data(['data/train.csv'], "EURUSD", "M5")
+    train_model(features, labels, "EURUSD", "M5")
+    test_model('data/test.csv', "EURUSD", "M5")

@@ -6,45 +6,68 @@ from flask import Flask, jsonify, request
 import datasets
 import model
 
+SUPPORTED_INSTRUMENTS = [
+    {
+        "instrument": "EURUSD",
+        "period": "M5"
+    }
+]
+
 
 def job_function():
-    print('******************')
-    print('* Start learning *')
-    print('******************')
-
-    if datasets.daily_dataset_exists():
-        x, y = model.read_data([datasets.get_daily_dataset_file()])
-        model.train_model(x, y)
-    else:
-        print("Daily dataset " + str(datasets.get_daily_dataset_file()) + " not found. Waiting...")
+    for element in SUPPORTED_INSTRUMENTS:
+        instrument = element["instrument"]
+        period = element["period"]
+        filename = datasets.get_daily_dataset_file(instrument, period)
+        if datasets.daily_dataset_exists(instrument, period):
+            print('******************')
+            print('* Start learning *')
+            print('******************')
+            x, y = model.read_data([filename], instrument, period)
+            model.train_model(x, y, instrument, period)
+        else:
+            print("Daily dataset " + str(filename) + " not found. Waiting...")
 
 
 app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = datasets.DATASET_DIR
 sched = BackgroundScheduler(daemon=True)
-sched.add_job(job_function, 'cron', minute='*')
+sched.add_job(job_function, 'cron', hour='*')
 sched.start()
 
 
 atexit.register(lambda: sched.shutdown(wait=False))
 
 
-def get_rates():
+def get_rates(without_time=False):
     rates = request.json["rates"]
-    frame = np.zeros((model.FRAME_LENGTH, 6))
-    for i in range(len(rates)):
-        frame[i][0] = rates[i]["time"]
-        frame[i][1] = rates[i]["open"]
-        frame[i][2] = rates[i]["high"]
-        frame[i][3] = rates[i]["low"]
-        frame[i][4] = rates[i]["close"]
-        frame[i][5] = rates[i]["volume"]
+    if without_time:
+        frame = np.zeros((len(rates), 5), dtype='object')
+        for i in range(len(rates)):
+            frame[i][0] = rates[i]["open"]
+            frame[i][1] = rates[i]["high"]
+            frame[i][2] = rates[i]["low"]
+            frame[i][3] = rates[i]["close"]
+            frame[i][4] = rates[i]["tickVolume"]
+    else:
+        frame = np.zeros((len(rates), 6), dtype='object')
+        for i in range(len(rates)):
+            frame[i][0] = rates[i]["time"]
+            frame[i][1] = rates[i]["open"]
+            frame[i][2] = rates[i]["high"]
+            frame[i][3] = rates[i]["low"]
+            frame[i][4] = rates[i]["close"]
+            frame[i][5] = rates[i]["tickVolume"]
 
-    return frame
+    return frame[::-1]
 
 
 @app.route('/forex-expert/whatshouldido', methods=['POST'])
 def what_should_i_do():
-    trend = model.predict_trend(get_rates())
+    instrument = request.json["instrument"].split(".")[0]
+    period = request.json["period"].split("_")[1]
+
+    trend = model.predict_trend(get_rates(without_time=True), instrument, period)
 
     if trend == "UP":
         answer = "OP_BUY"
@@ -66,7 +89,10 @@ def what_should_i_do():
 
 @app.route('/forex-expert/upload', methods=['POST'])
 def upload():
-    datasets.save_rates(get_rates())
+    instrument = request.json["instrument"].split(".")[0]
+    period = request.json["period"].split("_")[1]
+
+    datasets.save_rates(instrument, period, get_rates())
     return jsonify(
         {
             "status": "success",
@@ -77,7 +103,10 @@ def upload():
 
 @app.route('/forex-expert/doyouneeddata', methods=['POST'])
 def do_you_need_data():
-    if datasets.daily_dataset_exists():
+    instrument = request.json["instrument"].split(".")[0]
+    period = request.json["period"].split("_")[1]
+
+    if datasets.daily_dataset_exists(instrument, period):
         answer = "no"
     else:
         answer = "yes"
@@ -94,5 +123,5 @@ def do_you_need_data():
 
 
 if __name__ == '__main__':
-    app.run(port=8080, debug=True)
-    # app.run(host='0.0.0.0', port=80, debug=True)
+    # app.run(port=8080, debug=True)
+    app.run(host='0.0.0.0', port=80, debug=False)

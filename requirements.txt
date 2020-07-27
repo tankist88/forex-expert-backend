@@ -10,7 +10,7 @@ Keras == 2.2.4
 matplotlib == 3.0.1
 
 # model.py: 3
-numpy == 1.15.4
+numpy == 1.19.1
 
 # model.py: 4
 pandas == 0.23.4
