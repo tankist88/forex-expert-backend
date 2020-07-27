@@ -1,5 +1,6 @@
 /.idea
 *.hdf5
+*.dump
 *.png
 *.jpg
 *.jpeg

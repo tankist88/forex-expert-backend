@@ -1,3 +1,4 @@
+import os
 import keras.backend as K
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,15 +17,22 @@ from keras.models import load_model
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils import shuffle
+from sklearn.externals import joblib
+
 
 MODEL_FILENAME = "model.hdf5"
+SCALER_FILENAME = "scaler.dump"
 FRAME_LENGTH = 10
+N_FEATURES = 3
 PRICE_DELTA = 100
 SCALE = pow(10, 5)
 LABELS = [
     0,  # short
     1,  # long
     2   # others
+]
+DROP_COLUMNS = [
+    'time'
 ]
 
 
@@ -97,28 +105,28 @@ def build_classifier(input_shape):
 
 
 def create_features(data):
-    new_data = np.zeros((len(data), 3))
+    new_data = np.zeros((len(data), N_FEATURES))
 
     for i in range(len(data)):
         new_data[i][0] = data.iloc[i][0] - data.iloc[i][3]
         new_data[i][1] = data.iloc[i][1] - data.iloc[i][2]
         new_data[i][2] = pow(new_data[i][0], 2)
-        # new_data[i][3] = data.iloc[i][4]
 
     return new_data
 
 
 def read_data(files):
     data_frames = []
+
     for file in files:
-        data_frames.append(pd.read_csv('data/' + file))
+        data_frames.append(pd.read_csv(file))
 
     data = pd.concat(data_frames, axis=0)
-    data = data.drop(columns=['time'])
+    data = data.drop(columns=DROP_COLUMNS)
 
     new_data = create_features(data)
 
-    print("data shape: " + str(new_data.shape))
+    print("features shape: " + str(new_data.shape))
 
     scaler = StandardScaler()
     scaled_data = scaler.fit_transform(new_data)
@@ -150,7 +158,9 @@ def read_data(files):
 
     x_shuffled, y_shuffled = shuffle(x, y)
 
-    return x_shuffled, y_shuffled, scaler
+    joblib.dump(scaler, SCALER_FILENAME)
+
+    return x_shuffled, y_shuffled
 
 
 def train_model(x, y):
@@ -172,46 +182,89 @@ def train_model(x, y):
                       mode='min')],
               verbose=2)
 
+
+def predict_trend(frame, model=None, scaler=None):
+    if frame.shape[0] != FRAME_LENGTH:
+        print("Invalid frame length!")
+        return "NONE"
+
+    if model is None and os.path.isfile(MODEL_FILENAME):
+        model = load_model(MODEL_FILENAME, custom_objects={'f1': f1})
+    elif model is None:
+        print("Model not found!")
+        return "NONE"
+
+    if scaler is None and os.path.isfile(SCALER_FILENAME):
+        scaler = joblib.load(SCALER_FILENAME)
+    elif scaler is None:
+        print("Scaler not found!")
+        return "NONE"
+
+    scaled_data = scaler.transform(create_features(pd.DataFrame(frame)))
+
+    frames = []
+    copy_sub_frame(0, len(scaled_data), scaled_data, frames)
+
+    y_pred = model.predict(np.expand_dims(np.asarray(frames), axis=3))
+
+    label = LABELS[np.argmax(y_pred)]
+
+    if label == 0:
+        return "DOWN"
+    elif label == 1:
+        return "UP"
+    else:
+        return "NONE"
+
+
+def test_model(data_file):
     model = load_model(MODEL_FILENAME, custom_objects={'f1': f1})
+    scaler = joblib.load(SCALER_FILENAME)
 
-    return model
+    data = pd.read_csv(data_file)
+    data = data.drop(columns=DROP_COLUMNS)
 
-
-def visualize_model(data_file, model, scaler):
-    data = pd.read_csv('data/' + data_file)
-    data = data.drop(columns=['time'])
-
-    new_data = create_features(data)
-
-    scaled_data = scaler.transform(new_data)
-
+    true_base_points = 0.0
+    false_base_points = 0.0
     true_predicts = 0
     false_predicts = 0
-    lb = np.zeros(len(scaled_data))
+    lb = np.zeros(len(data))
     lb.fill(-1)
-    for i in range(FRAME_LENGTH, len(scaled_data)):
-        frames = []
-        copy_sub_frame(i - FRAME_LENGTH, i, scaled_data, frames)
-        y_pred = model.predict(np.expand_dims(np.asarray(frames), axis=3))
-        lb[i] = LABELS[np.argmax(y_pred)]
+    for i in range(FRAME_LENGTH, len(data)):
+        frame = []
+        for j in range(i - FRAME_LENGTH, i):
+            frame.append(data.iloc[j])
+        frame = np.asarray(frame)
+
+        trend = predict_trend(frame, model, scaler)
 
         close0 = data.iloc[i][3] * SCALE
         close1 = data.iloc[i - 1][3] * SCALE
 
-        if lb[i] == 1:
+        if trend == "UP":
+            lb[i] = 1
             if close0 - close1 >= 0:
                 true_predicts += 1
+                true_base_points += abs(close0 - close1)
             else:
                 false_predicts += 1
-        elif lb[i] == 0:
+                false_base_points += abs(close0 - close1)
+        elif trend == "DOWN":
+            lb[i] = 0
             if close1 - close0 >= 0:
                 true_predicts += 1
+                true_base_points += abs(close1 - close0)
             else:
                 false_predicts += 1
+                false_base_points += abs(close1 - close0)
+        else:
+            lb[i] = 2
 
     print("true_predicts: " + str(true_predicts))
     print("false_predicts: " + str(false_predicts))
     print("m: " + str(true_predicts/false_predicts))
+    print("true_base_points: " + str(true_base_points))
+    print("false_base_points: " + str(false_base_points))
 
     plt.figure(figsize=(50, 20))
     for i in range(len(lb)):
@@ -225,6 +278,6 @@ def visualize_model(data_file, model, scaler):
 
 
 if __name__ == '__main__':
-    features, labels, sc = read_data(['train.csv'])
+    features, labels = read_data(['data/train.csv'])
     train_model(features, labels)
-    visualize_model('test.csv', load_model(MODEL_FILENAME, custom_objects={'f1': f1}), sc)
+    test_model('data/test.csv')
