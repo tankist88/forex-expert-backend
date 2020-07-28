@@ -1,4 +1,3 @@
-import os
 import keras.backend as K
 import matplotlib.pyplot as plt
 import numpy as np
@@ -18,7 +17,9 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils import shuffle
 from sklearn.externals import joblib
+from os.path import join, dirname, realpath, isfile
 
+import datasets
 
 MODEL_FILENAME = "model.hdf5"
 SCALER_FILENAME = "scaler.dump"
@@ -49,6 +50,19 @@ def get_labels(label, shape):
     for n in range(len(arr)):
         arr[n][label] = 1
     return arr
+
+
+def create_scaler_filename(instrument, period):
+    dir_path = join(dirname(realpath(__file__)), datasets.DATASET_DIR)
+    return dir_path + "/" + str(instrument) + "_" + str(period) + "_" + SCALER_FILENAME
+
+
+def create_model_filename(instrument, period, temp=False):
+    dir_path = join(dirname(realpath(__file__)), datasets.DATASET_DIR)
+    if temp:
+        return dir_path + "/TEMP_" + str(instrument) + "_" + str(period) + "_" + MODEL_FILENAME
+    else:
+        return dir_path + "/" + str(instrument) + "_" + str(period) + "_" + MODEL_FILENAME
 
 
 # https://www.kaggle.com/guglielmocamporese/macro-f1-score-keras
@@ -158,7 +172,7 @@ def read_data(files, instrument, period):
 
     x_shuffled, y_shuffled = shuffle(x, y)
 
-    joblib.dump(scaler, str(instrument) + "_" + str(period) + SCALER_FILENAME)
+    joblib.dump(scaler, create_scaler_filename(instrument, period))
 
     return x_shuffled, y_shuffled
 
@@ -168,19 +182,31 @@ def train_model(x, y, instrument, period):
 
     x_train, x_valid, y_train, y_valid = train_test_split(x, y, test_size=0.1, random_state=42)
 
-    model = build_classifier((x.shape[1], x.shape[2], 1))
-    model.fit(x_train, y_train,
-              batch_size=40,
-              epochs=60,
-              validation_data=(x_valid, y_valid),
-              callbacks=[
-                  ModelCheckpoint(
-                      filepath=str(instrument) + "_" + str(period) + MODEL_FILENAME,
-                      save_best_only=True,
-                      monitor='val_loss',
-                      save_weights_only=False,
-                      mode='min')],
-              verbose=2)
+    temp_model_file = create_model_filename(instrument, period, temp=True)
+    min_val_loss = 10.0
+    selected_model = None
+    for i in range(10):
+        model = build_classifier((x.shape[1], x.shape[2], 1))
+        history = model.fit(x_train, y_train,
+                            batch_size=40,
+                            epochs=60,
+                            validation_data=(x_valid, y_valid),
+                            callbacks=[
+                                ModelCheckpoint(
+                                    filepath=temp_model_file,
+                                    save_best_only=True,
+                                    monitor='val_loss',
+                                    save_weights_only=False,
+                                    mode='min')],
+                            verbose=2)
+
+        for val_loss in history.history["val_loss"]:
+            if val_loss < min_val_loss:
+                min_val_loss = val_loss
+                selected_model = load_model(temp_model_file, custom_objects={'f1': f1})
+
+    print("SELECTED MODEL val_loss: " + str(min_val_loss))
+    selected_model.save(create_model_filename(instrument, period), overwrite=True)
 
 
 def predict_trend(frame, instrument, period, model=None, scaler=None):
@@ -188,15 +214,15 @@ def predict_trend(frame, instrument, period, model=None, scaler=None):
         print("Invalid frame length!")
         return "NONE"
 
-    model_file = str(instrument) + "_" + str(period) + MODEL_FILENAME
-    if model is None and os.path.isfile(model_file):
+    model_file = create_model_filename(instrument, period)
+    if model is None and isfile(model_file):
         model = load_model(model_file, custom_objects={'f1': f1})
     elif model is None:
         print("Model not found!")
         return "NONE"
 
-    scaler_file = str(instrument) + "_" + str(period) + SCALER_FILENAME
-    if scaler is None and os.path.isfile(scaler_file):
+    scaler_file = create_scaler_filename(instrument, period)
+    if scaler is None and isfile(scaler_file):
         scaler = joblib.load(scaler_file)
     elif scaler is None:
         print("Scaler not found!")
@@ -220,8 +246,8 @@ def predict_trend(frame, instrument, period, model=None, scaler=None):
 
 
 def test_model(data_file, instrument, period):
-    model_file = str(instrument) + "_" + str(period) + MODEL_FILENAME
-    scaler_file = str(instrument) + "_" + str(period) + SCALER_FILENAME
+    model_file = create_model_filename(instrument, period)
+    scaler_file = create_scaler_filename(instrument, period)
 
     model = load_model(model_file, custom_objects={'f1': f1})
     scaler = joblib.load(scaler_file)

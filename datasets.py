@@ -1,16 +1,14 @@
-import os
-from os.path import join, dirname, realpath
+from datetime import datetime
+from os.path import join, dirname, realpath, isfile
 
 import pandas as pd
-
-from datetime import datetime
 
 DATASET_PATTERN = "data_<instrument>_<period>_<date>.csv"
 DATASET_DIR = "data"
 
 
 def daily_dataset_exists(instrument, period):
-    if os.path.isfile(get_daily_dataset_file(instrument, period)):
+    if isfile(get_daily_dataset_file(instrument, period)):
         return True
     else:
         return False
