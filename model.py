@@ -24,6 +24,7 @@ import datasets
 MODEL_FILENAME = "model.hdf5"
 SCALER_FILENAME = "scaler.dump"
 FRAME_LENGTH = 10
+FRAME_COLUMNS = 5
 N_FEATURES = 3
 PRICE_DELTA = 100
 SCALE = pow(10, 5)
@@ -119,7 +120,7 @@ def build_classifier(input_shape):
 
 
 def create_features(data):
-    new_data = np.zeros((len(data), N_FEATURES))
+    new_data = np.zeros((len(data), N_FEATURES), dtype='float64')
 
     for i in range(len(data)):
         new_data[i][0] = data.iloc[i][0] - data.iloc[i][3]
@@ -206,12 +207,12 @@ def train_model(x, y, instrument, period):
                 selected_model = load_model(temp_model_file, custom_objects={'f1': f1})
 
     print("SELECTED MODEL val_loss: " + str(min_val_loss))
-    selected_model.save(create_model_filename(instrument, period), overwrite=True)
+    selected_model.save(create_model_filename(instrument, period), overwrite=True, include_optimizer=True)
 
 
 def predict_trend(frame, instrument, period, model=None, scaler=None):
-    if frame.shape[0] != FRAME_LENGTH:
-        print("Invalid frame length!")
+    if frame.shape[0] != FRAME_LENGTH or frame.shape[1] != FRAME_COLUMNS:
+        print("Invalid frame shape!")
         return "NONE"
 
     model_file = create_model_filename(instrument, period)
@@ -234,6 +235,8 @@ def predict_trend(frame, instrument, period, model=None, scaler=None):
     copy_sub_frame(0, FRAME_LENGTH, scaled_data, frames)
 
     y_pred = model.predict(np.expand_dims(np.asarray(frames), axis=3))
+
+    K.clear_session()
 
     label = LABELS[np.argmax(y_pred)]
 

@@ -3,8 +3,9 @@ import atexit
 import numpy as np
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, jsonify, request
+from os.path import join, dirname, realpath, isfile
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import datasets
 import model
@@ -15,6 +16,26 @@ SUPPORTED_INSTRUMENTS = [
         "period": "M5"
     }
 ]
+LEARN_PERIOD_HOURS = 3
+LAST_LEARN_FILE = "last_learn.txt"
+
+
+def write_last_learn_time():
+    dir_path = join(dirname(realpath(__file__)), datasets.DATASET_DIR)
+    f = open(dir_path + "/" + LAST_LEARN_FILE, "w")
+    f.write(datetime.now().strftime("%Y.%m.%d %H:%M:%S"))
+    f.close()
+
+
+def read_last_learn_time():
+    dir_path = join(dirname(realpath(__file__)), datasets.DATASET_DIR)
+    file_path = dir_path + "/" + LAST_LEARN_FILE
+
+    if isfile(file_path):
+        f = open(file_path, "r")
+        return datetime.strptime(f.read(), "%Y.%m.%d %H:%M:%S")
+    else:
+        return datetime.now() - timedelta(hours=LEARN_PERIOD_HOURS + 1)
 
 
 def get_base_params():
@@ -24,22 +45,25 @@ def get_base_params():
 
 
 def job_function():
-    for element in SUPPORTED_INSTRUMENTS:
-        instrument = element["instrument"]
-        period = element["period"]
-        filename = datasets.get_daily_dataset_file(instrument, period)
-        if datasets.daily_dataset_exists(instrument, period):
-            print('Start learning')
-            x, y = model.read_data([filename], instrument, period)
-            model.train_model(x, y, instrument, period)
-        else:
-            print("Daily dataset " + str(filename) + " not found. Waiting...")
+    last_learn_time = read_last_learn_time()
+    if ((datetime.now() - last_learn_time).total_seconds() / 60 / 60) > LEARN_PERIOD_HOURS:
+        for element in SUPPORTED_INSTRUMENTS:
+            instrument = element["instrument"]
+            period = element["period"]
+            filename = datasets.get_daily_dataset_file(instrument, period)
+            if datasets.daily_dataset_exists(instrument, period):
+                print('Start learning')
+                x, y = model.read_data([filename], instrument, period)
+                model.train_model(x, y, instrument, period)
+                write_last_learn_time()
+            else:
+                print("Daily dataset " + str(filename) + " not found. Waiting...")
 
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = datasets.DATASET_DIR
 sched = BackgroundScheduler(daemon=True)
-sched.add_job(job_function, 'cron', minute='*')
+sched.add_job(job_function, 'cron', minute='*/10')
 sched.start()
 
 
@@ -118,5 +142,5 @@ def do_you_need_data():
 
 
 if __name__ == '__main__':
-    app.run(port=8080, debug=False)
-    # app.run(host='0.0.0.0', port=80, debug=False)
+    # app.run(port=8080, debug=False)
+    app.run(host='0.0.0.0', port=80, debug=False)

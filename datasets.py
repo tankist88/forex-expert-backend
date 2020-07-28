@@ -22,5 +22,6 @@ def get_daily_dataset_file(instrument, period):
 
 
 def save_rates(instrument, period, rates):
+    print("saved " + str(len(rates)) + " rates")
     frame = pd.DataFrame(data=rates, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
     frame.to_csv(get_daily_dataset_file(instrument, period), index=False)
