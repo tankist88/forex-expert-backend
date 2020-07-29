@@ -21,7 +21,7 @@ from os.path import join, dirname, realpath, isfile
 
 import datasets
 
-MODEL_FILENAME = "model.hdf5"
+MODEL_FILENAME = "model.h5"
 SCALER_FILENAME = "scaler.dump"
 FRAME_LENGTH = 10
 FRAME_COLUMNS = 5
@@ -102,16 +102,16 @@ def build_classifier(input_shape):
         conv_layers.append(conv)
 
     x = Concatenate(axis=1)(conv_layers)
-    # x = Dense(units=16, init='he_normal', activation='relu')(x)
+    # x = Dense(units=16, kernel_initializer='he_normal', activation='relu')(x)
     # x = BatchNormalization()(x)
     # x = Dropout(0.2)(x)
-    # x = Dense(units=16, init='he_normal', activation='relu')(x)
+    # x = Dense(units=16, kernel_initializer='he_normal', activation='relu')(x)
     # x = BatchNormalization()(x)
     # x = Dropout(0.2)(x)
-    x = Dense(units=32, init='he_normal', activation='relu')(x)
+    x = Dense(units=32, kernel_initializer='he_normal', activation='relu')(x)
     x = BatchNormalization()(x)
     x = Dropout(0.2)(x)
-    outp = Dense(units=3, init='glorot_normal', activation='softmax')(x)
+    outp = Dense(units=3, kernel_initializer='glorot_normal', activation='softmax')(x)
 
     model = Model(inputs=inp, outputs=outp)
     model.compile(loss='categorical_crossentropy', optimizer='nadam', metrics=[f1])
@@ -178,7 +178,7 @@ def read_data(files, instrument, period):
     return x_shuffled, y_shuffled
 
 
-def train_model(x, y, instrument, period):
+def train_model(x, y, instrument, period, model_count=10):
     x = np.expand_dims(x, axis=3)
 
     x_train, x_valid, y_train, y_valid = train_test_split(x, y, test_size=0.1, random_state=42)
@@ -186,7 +186,7 @@ def train_model(x, y, instrument, period):
     temp_model_file = create_model_filename(instrument, period, temp=True)
     min_val_loss = 10.0
     selected_model = None
-    for i in range(10):
+    for i in range(model_count):
         model = build_classifier((x.shape[1], x.shape[2], 1))
         history = model.fit(x_train, y_train,
                             batch_size=40,
@@ -209,8 +209,10 @@ def train_model(x, y, instrument, period):
     print("SELECTED MODEL val_loss: " + str(min_val_loss))
     selected_model.save(create_model_filename(instrument, period), overwrite=True, include_optimizer=True)
 
+    K.clear_session()
 
-def predict_trend(frame, instrument, period, model=None, scaler=None):
+
+def predict_trend(frame, instrument, period, model=None, scaler=None, clear_session=True):
     if frame.shape[0] != FRAME_LENGTH or frame.shape[1] != FRAME_COLUMNS:
         print("Invalid frame shape!")
         return "NONE"
@@ -236,7 +238,8 @@ def predict_trend(frame, instrument, period, model=None, scaler=None):
 
     y_pred = model.predict(np.expand_dims(np.asarray(frames), axis=3))
 
-    K.clear_session()
+    if clear_session:
+        K.clear_session()
 
     label = LABELS[np.argmax(y_pred)]
 
@@ -270,7 +273,7 @@ def test_model(data_file, instrument, period):
             frame.append(data.iloc[j])
         frame = np.asarray(frame)
 
-        trend = predict_trend(frame, instrument, period, model, scaler)
+        trend = predict_trend(frame, instrument, period, model, scaler, False)
 
         close0 = data.iloc[i][3] * SCALE
         close1 = data.iloc[i - 1][3] * SCALE
@@ -313,5 +316,5 @@ def test_model(data_file, instrument, period):
 
 if __name__ == '__main__':
     features, labels = read_data(['data/train.csv'], "EURUSD", "M5")
-    train_model(features, labels, "EURUSD", "M5")
+    train_model(features, labels, "EURUSD", "M5", 1)
     test_model('data/test.csv', "EURUSD", "M5")

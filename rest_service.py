@@ -86,17 +86,22 @@ def get_rates():
 
 @app.route('/forex-expert/whatshouldido', methods=['POST'])
 def what_should_i_do():
-    instrument, period = get_base_params()
-
-    rates = get_rates()[:, [1, 2, 3, 4, 5]]
-    trend = model.predict_trend(rates, instrument, period)
-
-    if trend == "UP":
-        answer = "OP_BUY"
-    elif trend == "DOWN":
-        answer = "OP_SELL"
-    else:
+    last_learn_time = read_last_learn_time()
+    if ((datetime.now() - last_learn_time).total_seconds() / 60 / 60) > LEARN_PERIOD_HOURS:
+        print("Model is outdated!!!")
         answer = "NONE"
+    else:
+        instrument, period = get_base_params()
+
+        rates = get_rates()[:, [1, 2, 3, 4, 5]]
+        trend = model.predict_trend(rates, instrument, period)
+
+        if trend == "UP":
+            answer = "OP_BUY"
+        elif trend == "DOWN":
+            answer = "OP_SELL"
+        else:
+            answer = "NONE"
 
     print("what should i do?: " + str(answer))
 
