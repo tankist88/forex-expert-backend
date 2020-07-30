@@ -16,26 +16,32 @@ SUPPORTED_INSTRUMENTS = [
         "period": "M5"
     }
 ]
+
+REQUESTED_DATA_LENGTH = 25000
+
 LEARN_PERIOD_HOURS = 3
 LAST_LEARN_FILE = "last_learn.txt"
 
+DATA_UPDATE_PERIOD_MINUTES = 10
+LAST_DATA_UPDATE_FILE = "last_data_update.txt"
 
-def write_last_learn_time():
+
+def write_time(kind):
     dir_path = join(dirname(realpath(__file__)), datasets.DATASET_DIR)
-    f = open(dir_path + "/" + LAST_LEARN_FILE, "w")
+    f = open(dir_path + "/" + kind, "w")
     f.write(datetime.now().strftime("%Y.%m.%d %H:%M:%S"))
     f.close()
 
 
-def read_last_learn_time():
+def read_time(kind):
     dir_path = join(dirname(realpath(__file__)), datasets.DATASET_DIR)
-    file_path = dir_path + "/" + LAST_LEARN_FILE
+    file_path = dir_path + "/" + kind
 
     if isfile(file_path):
         f = open(file_path, "r")
         return datetime.strptime(f.read(), "%Y.%m.%d %H:%M:%S")
     else:
-        return datetime.now() - timedelta(hours=LEARN_PERIOD_HOURS + 1)
+        return datetime.now() - timedelta(hours=24)
 
 
 def get_base_params():
@@ -45,7 +51,7 @@ def get_base_params():
 
 
 def job_function():
-    last_learn_time = read_last_learn_time()
+    last_learn_time = read_time(LAST_LEARN_FILE)
     if ((datetime.now() - last_learn_time).total_seconds() / 60 / 60) > LEARN_PERIOD_HOURS:
         for element in SUPPORTED_INSTRUMENTS:
             instrument = element["instrument"]
@@ -55,7 +61,7 @@ def job_function():
                 print('Start learning')
                 x, y = model.read_data([filename], instrument, period)
                 model.train_model(x, y, instrument, period)
-                write_last_learn_time()
+                write_time(LAST_LEARN_FILE)
             else:
                 print("Daily dataset " + str(filename) + " not found. Waiting...")
 
@@ -86,9 +92,9 @@ def get_rates():
 
 @app.route('/forex-expert/whatshouldido', methods=['POST'])
 def what_should_i_do():
-    last_learn_time = read_last_learn_time()
+    last_learn_time = read_time(LAST_LEARN_FILE)
     if ((datetime.now() - last_learn_time).total_seconds() / 60 / 60) > LEARN_PERIOD_HOURS:
-        print("Model is outdated!!!")
+        print("Model is outdated")
         answer = "NONE"
     else:
         instrument, period = get_base_params()
@@ -118,6 +124,7 @@ def what_should_i_do():
 def upload():
     instrument, period = get_base_params()
     datasets.save_rates(instrument, period, get_rates())
+    write_time(LAST_DATA_UPDATE_FILE)
     return jsonify(
         {
             "status": "success",
@@ -130,7 +137,10 @@ def upload():
 def do_you_need_data():
     instrument, period = get_base_params()
 
-    if datasets.daily_dataset_exists(instrument, period):
+    last_data_update_time = read_time(LAST_DATA_UPDATE_FILE)
+
+    data_is_actual = ((datetime.now() - last_data_update_time).total_seconds() / 60) <= DATA_UPDATE_PERIOD_MINUTES
+    if datasets.daily_dataset_exists(instrument, period) and data_is_actual:
         answer = "no"
     else:
         answer = "yes"
@@ -141,7 +151,9 @@ def do_you_need_data():
         {
             "status": "success",
             "desc": "success",
-            "answer": answer
+            "answer": answer,
+            "train_length": REQUESTED_DATA_LENGTH,
+            "predict_length": model.FRAME_LENGTH
         }
     )
 
