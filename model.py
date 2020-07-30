@@ -178,7 +178,7 @@ def read_data(files, instrument, period):
     return x_shuffled, y_shuffled
 
 
-def train_model(x, y, instrument, period, model_count=10):
+def train_model(x, y, instrument, period, model_count=10, verbose=2):
     x = np.expand_dims(x, axis=3)
 
     x_train, x_valid, y_train, y_valid = train_test_split(x, y, test_size=0.1, random_state=42)
@@ -199,7 +199,7 @@ def train_model(x, y, instrument, period, model_count=10):
                                     monitor='val_loss',
                                     save_weights_only=False,
                                     mode='min')],
-                            verbose=2)
+                            verbose=verbose)
 
         for val_loss in history.history["val_loss"]:
             if val_loss < min_val_loss:

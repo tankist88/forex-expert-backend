@@ -6,7 +6,8 @@
 *.jpg
 *.jpeg
 *.bmp
-last_learn.txt
+*last_learn.txt
+*last_data_update.txt
 data*.csv
 # Byte-compiled / optimized / DLL files
 __pycache__/

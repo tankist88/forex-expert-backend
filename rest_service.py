@@ -4,6 +4,7 @@ import numpy as np
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, jsonify, request
 from os.path import join, dirname, realpath, isfile
+from threading import Lock
 
 from datetime import datetime, timedelta
 
@@ -25,17 +26,19 @@ LAST_LEARN_FILE = "last_learn.txt"
 DATA_UPDATE_PERIOD_MINUTES = 20
 LAST_DATA_UPDATE_FILE = "last_data_update.txt"
 
+predict_lock = Lock()
 
-def write_time(kind):
+
+def write_time(kind, instrument, period):
     dir_path = join(dirname(realpath(__file__)), datasets.DATASET_DIR)
-    f = open(dir_path + "/" + kind, "w")
+    f = open(dir_path + "/" + instrument + "_" + period + "_" + kind, "w")
     f.write(datetime.now().strftime("%Y.%m.%d %H:%M:%S"))
     f.close()
 
 
-def read_time(kind):
+def read_time(kind, instrument, period):
     dir_path = join(dirname(realpath(__file__)), datasets.DATASET_DIR)
-    file_path = dir_path + "/" + kind
+    file_path = dir_path + "/" + instrument + "_" + period + "_" + kind
 
     if isfile(file_path):
         f = open(file_path, "r")
@@ -51,19 +54,20 @@ def get_base_params():
 
 
 def job_function():
-    last_learn_time = read_time(LAST_LEARN_FILE)
-    if ((datetime.now() - last_learn_time).total_seconds() / 60 / 60) > LEARN_PERIOD_HOURS:
-        for element in SUPPORTED_INSTRUMENTS:
-            instrument = element["instrument"]
-            period = element["period"]
+    for element in SUPPORTED_INSTRUMENTS:
+        instrument = element["instrument"]
+        period = element["period"]
+
+        last_learn_time = read_time(LAST_LEARN_FILE, instrument, period)
+        if ((datetime.now() - last_learn_time).total_seconds() / 60 / 60) > LEARN_PERIOD_HOURS:
             filename = datasets.get_daily_dataset_file(instrument, period)
             if datasets.daily_dataset_exists(instrument, period):
-                print('Start learning')
+                print("job_function: Start learning " + instrument + " " + period)
                 x, y = model.read_data([filename], instrument, period)
-                model.train_model(x, y, instrument, period)
-                write_time(LAST_LEARN_FILE)
+                model.train_model(x, y, instrument, period, verbose=0)
+                write_time(LAST_LEARN_FILE, instrument, period)
             else:
-                print("Daily dataset " + str(filename) + " not found. Waiting...")
+                print("job_function: Daily dataset " + str(filename) + " not found. Waiting...")
 
 
 app = Flask(__name__)
@@ -90,17 +94,20 @@ def get_rates():
     return np.asarray(sorted(arr, key=lambda x: x[0]))
 
 
-@app.route('/forex-expert/whatshouldido', methods=['POST'])
-def what_should_i_do():
-    last_learn_time = read_time(LAST_LEARN_FILE)
+@app.route('/forex-expert/predict', methods=['POST'])
+def predict():
+    instrument, period = get_base_params()
+
+    last_learn_time = read_time(LAST_LEARN_FILE, instrument, period)
     if ((datetime.now() - last_learn_time).total_seconds() / 60 / 60) > LEARN_PERIOD_HOURS:
-        print("Model is outdated")
+        print("predict: model " + instrument + " " + period + " is outdated")
         answer = "NONE"
     else:
-        instrument, period = get_base_params()
-
         rates = get_rates()[:, [1, 2, 3, 4, 5]]
+
+        predict_lock.acquire()
         trend = model.predict_trend(rates, instrument, period)
+        predict_lock.release()
 
         if trend == "UP":
             answer = "OP_BUY"
@@ -109,7 +116,7 @@ def what_should_i_do():
         else:
             answer = "NONE"
 
-    print("what should i do?: " + str(answer))
+    print("predict: " + str(answer))
 
     return jsonify(
         {
@@ -124,7 +131,7 @@ def what_should_i_do():
 def upload():
     instrument, period = get_base_params()
     datasets.save_rates(instrument, period, get_rates())
-    write_time(LAST_DATA_UPDATE_FILE)
+    write_time(LAST_DATA_UPDATE_FILE, instrument, period)
     return jsonify(
         {
             "status": "success",
@@ -133,19 +140,19 @@ def upload():
     )
 
 
-@app.route('/forex-expert/doyouneeddata', methods=['POST'])
-def do_you_need_data():
+@app.route('/forex-expert/datacheck', methods=['POST'])
+def datacheck():
     instrument, period = get_base_params()
 
-    last_data_update_time = read_time(LAST_DATA_UPDATE_FILE)
+    last_data_update_time = read_time(LAST_DATA_UPDATE_FILE, instrument, period)
 
     data_is_actual = ((datetime.now() - last_data_update_time).total_seconds() / 60) <= DATA_UPDATE_PERIOD_MINUTES
     if datasets.daily_dataset_exists(instrument, period) and data_is_actual:
-        answer = "no"
+        answer = "NONE"
     else:
-        answer = "yes"
+        answer = "UPLOAD"
 
-    print("do you need data?: " + str(answer))
+    print("datacheck: " + str(answer))
 
     return jsonify(
         {
