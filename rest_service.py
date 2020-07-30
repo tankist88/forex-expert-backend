@@ -22,7 +22,7 @@ REQUESTED_DATA_LENGTH = 25000
 LEARN_PERIOD_HOURS = 3
 LAST_LEARN_FILE = "last_learn.txt"
 
-DATA_UPDATE_PERIOD_MINUTES = 10
+DATA_UPDATE_PERIOD_MINUTES = 20
 LAST_DATA_UPDATE_FILE = "last_data_update.txt"
 
 
@@ -69,7 +69,7 @@ def job_function():
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = datasets.DATASET_DIR
 sched = BackgroundScheduler(daemon=True)
-sched.add_job(job_function, 'cron', minute='*/10')
+sched.add_job(job_function, 'cron', minute='*/15')
 sched.start()
 
 
