@@ -4,19 +4,14 @@ import numpy as np
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, jsonify, request
 from os.path import join, dirname, realpath, isfile
-from threading import Lock
+from threading import Lock, RLock
 
 from datetime import datetime, timedelta
 
 import datasets
 import model
 
-SUPPORTED_INSTRUMENTS = [
-    {
-        "instrument": "EURUSD",
-        "period": "M5"
-    }
-]
+SUPPORTED_INSTRUMENTS = []
 
 REQUESTED_DATA_LENGTH = 25000
 
@@ -27,6 +22,7 @@ DATA_UPDATE_PERIOD_MINUTES = 20
 LAST_DATA_UPDATE_FILE = "last_data_update.txt"
 
 predict_lock = Lock()
+supported_instruments_lock = RLock()
 
 
 def write_time(kind, instrument, period):
@@ -57,13 +53,14 @@ def job_function():
     for element in SUPPORTED_INSTRUMENTS:
         instrument = element["instrument"]
         period = element["period"]
+        point = element["point"]
 
         last_learn_time = read_time(LAST_LEARN_FILE, instrument, period)
         if ((datetime.now() - last_learn_time).total_seconds() / 60 / 60) > LEARN_PERIOD_HOURS:
             filename = datasets.get_daily_dataset_file(instrument, period)
             if datasets.daily_dataset_exists(instrument, period):
                 print("job_function: Start learning " + instrument + " " + period)
-                x, y = model.read_data([filename], instrument, period)
+                x, y = model.read_data([filename], instrument, period, point)
                 model.train_model(x, y, instrument, period, verbose=0)
                 write_time(LAST_LEARN_FILE, instrument, period)
             else:
@@ -163,6 +160,40 @@ def datacheck():
             "predict_length": model.FRAME_LENGTH
         }
     )
+
+
+@app.route('/forex-expert/appendinstrument', methods=['POST'])
+def append_instrument():
+    instrument, period = get_base_params()
+
+    supported_instruments_lock.acquire()
+    SUPPORTED_INSTRUMENTS.append(
+        {
+            "instrument": instrument,
+            "period": period,
+            "point": request.json["point"]
+        }
+    )
+    supported_instruments_lock.release()
+
+    print("append_instrument: SUPPORTED_INSTRUMENTS: " + str(SUPPORTED_INSTRUMENTS))
+
+
+@app.route('/forex-expert/removeinstrument', methods=['POST'])
+def remove_instrument():
+    instrument, period = get_base_params()
+
+    for_remove = None
+    for element in SUPPORTED_INSTRUMENTS:
+        if element["instrument"] == instrument and element["period"] == period:
+            for_remove = element
+
+    supported_instruments_lock.acquire()
+    if for_remove is not None:
+        SUPPORTED_INSTRUMENTS.remove(for_remove)
+    supported_instruments_lock.release()
+
+    print("remove_instrument: SUPPORTED_INSTRUMENTS: " + str(SUPPORTED_INSTRUMENTS))
 
 
 if __name__ == '__main__':

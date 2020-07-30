@@ -27,7 +27,7 @@ FRAME_LENGTH = 10
 FRAME_COLUMNS = 5
 N_FEATURES = 3
 PRICE_DELTA = 100
-SCALE = pow(10, 5)
+POINT = 0.00001
 LABELS = [
     0,  # short
     1,  # long
@@ -130,7 +130,7 @@ def create_features(data):
     return new_data
 
 
-def read_data(files, instrument, period):
+def read_data(files, instrument, period, point):
     data_frames = []
 
     for file in files:
@@ -151,8 +151,8 @@ def read_data(files, instrument, period):
     frames_other = []
 
     for i in range(FRAME_LENGTH, len(data)):
-        close0 = data.iloc[i][3] * SCALE
-        close1 = data.iloc[i - 1][3] * SCALE
+        close0 = round(data.iloc[i][3] / point)
+        close1 = round(data.iloc[i - 1][3] / point)
         if close0 - close1 >= PRICE_DELTA:
             copy_sub_frame(i - FRAME_LENGTH, i, scaled_data, frames_long)
         elif close1 - close0 >= PRICE_DELTA:
@@ -162,7 +162,7 @@ def read_data(files, instrument, period):
 
     frames_short = np.asarray(frames_short)
     frames_long = np.asarray(frames_long)
-    frames_other = np.asarray(frames_other)[0: max(len(frames_short), len(frames_long)) * 7]
+    frames_other = np.asarray(frames_other)[0: max(len(frames_short), len(frames_long)) * 3]
 
     y_short = get_labels(LABELS[0], (len(frames_short), 3))
     y_long = get_labels(LABELS[1], (len(frames_long), 3))
@@ -206,7 +206,10 @@ def train_model(x, y, instrument, period, model_count=10, verbose=2):
                 min_val_loss = val_loss
                 selected_model = load_model(temp_model_file, custom_objects={'f1': f1})
 
+    print("******* " + instrument + " " + period + " *******")
     print("SELECTED MODEL val_loss: " + str(min_val_loss))
+    print("*************************")
+
     selected_model.save(create_model_filename(instrument, period), overwrite=True, include_optimizer=True)
 
     K.clear_session()
@@ -251,7 +254,7 @@ def predict_trend(frame, instrument, period, model=None, scaler=None, clear_sess
         return "NONE"
 
 
-def test_model(data_file, instrument, period):
+def test_model(data_file, instrument, period, point):
     model_file = create_model_filename(instrument, period)
     scaler_file = create_scaler_filename(instrument, period)
 
@@ -275,8 +278,8 @@ def test_model(data_file, instrument, period):
 
         trend = predict_trend(frame, instrument, period, model, scaler, False)
 
-        close0 = data.iloc[i][3] * SCALE
-        close1 = data.iloc[i - 1][3] * SCALE
+        close0 = round(data.iloc[i][3] / point)
+        close1 = round(data.iloc[i - 1][3] / point)
 
         if trend == "UP":
             lb[i] = 1
@@ -315,6 +318,6 @@ def test_model(data_file, instrument, period):
 
 
 if __name__ == '__main__':
-    features, labels = read_data(['data/train.csv'], "EURUSD", "M5")
+    features, labels = read_data(['data/train.csv'], "EURUSD", "M5", POINT)
     train_model(features, labels, "EURUSD", "M5", 1)
-    test_model('data/test.csv', "EURUSD", "M5")
+    test_model('data/test.csv', "EURUSD", "M5", POINT)
