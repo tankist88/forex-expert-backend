@@ -178,6 +178,13 @@ def append_instrument():
 
     print("append_instrument: SUPPORTED_INSTRUMENTS: " + str(SUPPORTED_INSTRUMENTS))
 
+    return jsonify(
+        {
+            "status": "success",
+            "desc": "success"
+        }
+    )
+
 
 @app.route('/forex-expert/removeinstrument', methods=['POST'])
 def remove_instrument():
@@ -194,6 +201,13 @@ def remove_instrument():
     supported_instruments_lock.release()
 
     print("remove_instrument: SUPPORTED_INSTRUMENTS: " + str(SUPPORTED_INSTRUMENTS))
+
+    return jsonify(
+        {
+            "status": "success",
+            "desc": "success"
+        }
+    )
 
 
 if __name__ == '__main__':
