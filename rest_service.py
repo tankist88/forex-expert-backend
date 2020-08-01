@@ -1,24 +1,21 @@
 import atexit
+from datetime import datetime, timedelta
+from os.path import join, dirname, realpath, isfile
+from threading import Lock, RLock
 
 import numpy as np
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, jsonify, request
-from os.path import join, dirname, realpath, isfile
-from threading import Lock, RLock
-
-from datetime import datetime, timedelta
 
 import datasets
 import model
+from logger_config import logger
 
 SUPPORTED_INSTRUMENTS = []
-
 REQUESTED_DATA_LENGTH = 25000
-
-LEARN_PERIOD_HOURS = 3
+LEARN_PERIOD_HOURS = 24
 LAST_LEARN_FILE = "last_learn.txt"
-
-DATA_UPDATE_PERIOD_MINUTES = 20
+DATA_UPDATE_PERIOD_MINUTES = 120
 LAST_DATA_UPDATE_FILE = "last_data_update.txt"
 
 predict_lock = Lock()
@@ -40,7 +37,7 @@ def read_time(kind, instrument, period):
         f = open(file_path, "r")
         return datetime.strptime(f.read(), "%Y.%m.%d %H:%M:%S")
     else:
-        return datetime.now() - timedelta(hours=24)
+        return datetime.now() - timedelta(hours=72)
 
 
 def get_base_params():
@@ -59,18 +56,18 @@ def job_function():
         if ((datetime.now() - last_learn_time).total_seconds() / 60 / 60) > LEARN_PERIOD_HOURS:
             filename = datasets.get_daily_dataset_file(instrument, period)
             if datasets.daily_dataset_exists(instrument, period):
-                print("job_function: Start learning " + instrument + " " + period)
+                logger.info("job_function: Start learning %s %s", instrument, period)
                 x, y = model.read_data([filename], instrument, period, point)
                 model.train_model(x, y, instrument, period, verbose=0)
                 write_time(LAST_LEARN_FILE, instrument, period)
             else:
-                print("job_function: Daily dataset " + str(filename) + " not found. Waiting...")
+                logger.info("job_function: Daily dataset %s not found. Waiting...", str(filename))
 
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = datasets.DATASET_DIR
 sched = BackgroundScheduler(daemon=True)
-sched.add_job(job_function, 'cron', minute='*/15')
+sched.add_job(job_function, 'cron', hour='*/2')
 sched.start()
 
 
@@ -97,13 +94,18 @@ def predict():
 
     last_learn_time = read_time(LAST_LEARN_FILE, instrument, period)
     if ((datetime.now() - last_learn_time).total_seconds() / 60 / 60) > LEARN_PERIOD_HOURS:
-        print("predict: model " + instrument + " " + period + " is outdated")
+        logger.info("predict: model %s %s is outdated", instrument, period)
         answer = "NONE"
     else:
         rates = get_rates()[:, [1, 2, 3, 4, 5]]
 
+        point = None
+        for element in SUPPORTED_INSTRUMENTS:
+            if element["instrument"] == instrument and element["period"] == period:
+                point = element["point"]
+
         predict_lock.acquire()
-        trend = model.predict_trend(rates, instrument, period)
+        trend = model.predict_trend(rates, instrument, period, point)
         predict_lock.release()
 
         if trend == "UP":
@@ -113,7 +115,7 @@ def predict():
         else:
             answer = "NONE"
 
-    print("predict: " + str(answer))
+    logger.info("predict: %s", str(answer))
 
     return jsonify(
         {
@@ -149,7 +151,7 @@ def datacheck():
     else:
         answer = "UPLOAD"
 
-    print("datacheck: " + str(answer))
+    logger.info("datacheck: %s", str(answer))
 
     return jsonify(
         {
@@ -176,7 +178,7 @@ def append_instrument():
     )
     supported_instruments_lock.release()
 
-    print("append_instrument: SUPPORTED_INSTRUMENTS: " + str(SUPPORTED_INSTRUMENTS))
+    logger.info("append_instrument: SUPPORTED_INSTRUMENTS: %s", str(SUPPORTED_INSTRUMENTS))
 
     return jsonify(
         {
@@ -200,7 +202,7 @@ def remove_instrument():
         SUPPORTED_INSTRUMENTS.remove(for_remove)
     supported_instruments_lock.release()
 
-    print("remove_instrument: SUPPORTED_INSTRUMENTS: " + str(SUPPORTED_INSTRUMENTS))
+    logger.info("remove_instrument: SUPPORTED_INSTRUMENTS: %s", str(SUPPORTED_INSTRUMENTS))
 
     return jsonify(
         {

@@ -6,6 +6,7 @@
 *.jpg
 *.jpeg
 *.bmp
+*.pickle
 *last_learn.txt
 *last_data_update.txt
 data*.csv

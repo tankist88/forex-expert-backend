@@ -3,6 +3,8 @@ from os.path import join, dirname, realpath, isfile
 
 import pandas as pd
 
+from logger_config import logger
+
 DATASET_PATTERN = "data_<instrument>_<period>_<date>.csv"
 DATASET_DIR = "data"
 
@@ -22,6 +24,6 @@ def get_daily_dataset_file(instrument, period):
 
 
 def save_rates(instrument, period, rates):
-    print("saved " + str(len(rates)) + " rates")
+    logger.info("saved %s rates", str(len(rates)))
     frame = pd.DataFrame(data=rates, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
     frame.to_csv(get_daily_dataset_file(instrument, period), index=False)
