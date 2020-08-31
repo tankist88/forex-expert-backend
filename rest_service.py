@@ -97,7 +97,11 @@ def predict():
         logger.info("predict: model %s %s is outdated", instrument, period)
         answer = "NONE"
     else:
-        rates = get_rates()[:, [1, 2, 3, 4, 5]]
+        rates = get_rates()
+
+        logger.info("input data from %s to %s",
+                    rates[0][0].strftime("%Y.%m.%d %H:%M:%S"),
+                    rates[len(rates) - 1][0].strftime("%Y.%m.%d %H:%M:%S"))
 
         point = None
         for element in SUPPORTED_INSTRUMENTS:
@@ -105,7 +109,7 @@ def predict():
                 point = element["point"]
 
         predict_lock.acquire()
-        trend = model.predict_trend(rates, instrument, period, point)
+        trend = model.predict_trend(rates[:, [1, 2, 3, 4, 5]], instrument, period, point)
         predict_lock.release()
 
         if trend == "UP":
@@ -213,5 +217,6 @@ def remove_instrument():
 
 
 if __name__ == '__main__':
+    write_time(LAST_LEARN_FILE, "EURUSD", "M5")
     # app.run(port=8080, debug=False)
     app.run(host='0.0.0.0', port=80, debug=False)
