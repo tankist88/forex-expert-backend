@@ -36,6 +36,11 @@ LABELS = [
     1,  # long
     2   # others
 ]
+LABELS_TITLES = [
+    "DOWN",
+    "UP",
+    "NOTHING"
+]
 DROP_COLUMNS = [
     'time'
 ]
@@ -132,9 +137,9 @@ def create_features(data, point):
         new_data[i][3] = (data.iloc[i][4] / max_volume) * 100
 
         if i > 0:
-            if data.iloc[i][3] > data.iloc[i - 1][3]:
+            if (data.iloc[i][3] / point) - (data.iloc[i - 1][3] / point) > PRICE_DELTA * 0.05:
                 trend_counter += 1
-            elif data.iloc[i][3] < data.iloc[i - 1][3]:
+            elif (data.iloc[i - 1][3] / point) - (data.iloc[i][3] / point) > PRICE_DELTA * 0.05:
                 trend_counter -= 1
 
         new_data[i][4] = trend_counter
@@ -411,14 +416,35 @@ def test_model(data_file, instrument, period, point, plot_results=False):
     return true_predicts, false_predicts
 
 
-def feature_alanysis(features, labels):
-    short_vals = features[labels[:, [0]].reshape(len(labels), ) == 1]
-    long_vals = features[labels[:, [1]].reshape(len(labels), ) == 1]
-    print('stub')
+def create_array(vals, pos, feature):
+    arr = []
+    for val in vals:
+        arr.append(val[len(val) + pos][feature])
+    return np.asarray(arr)
+
+
+def feature_alanysis(features, labels, n_feature):
+    fig, ax = plt.subplots(len(LABELS), FRAME_LENGTH, figsize=(15, 4), sharex=True, sharey=True)
+    fig.suptitle('Start <== FRAME ==> End')
+
+    for j in range(FRAME_LENGTH):
+        ax[0][j].set_title(str(j))
+
+    for i in range(len(LABELS)):
+        ax[i][0].set_ylabel(LABELS_TITLES[i], rotation=90, size='large')
+
+    for i in range(len(LABELS)):
+        vals = features[labels[:, [i]].reshape(len(labels), ) == 1]
+        for j in range(FRAME_LENGTH):
+            ax[i][j].hist(create_array(vals, -j-1, n_feature), density=True, bins=40)
+
+    fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.savefig("features_" + str(n_feature) + ".png")
+    plt.close()
 
 
 if __name__ == '__main__':
-    features, labels = read_data(['data/train.csv'], "EURUSD", "M5", point=0.00001)
+    features, labels = read_data(['data/train.csv'], "EURUSD", "M5", point=0.00001, need_scale=False)
 
     with open('data/train_proc_data.pickle', 'wb') as f:
         pickle.dump((features, labels), f)
@@ -426,7 +452,8 @@ if __name__ == '__main__':
     with open('data/train_proc_data.pickle', 'rb') as f:
         (features, labels) = pickle.load(f)
 
-    feature_alanysis(features, labels)
+    for n in range(N_FEATURES):
+        feature_alanysis(features, labels, n)
 
     train_model(features, labels, "EURUSD", "M5")
     test_model('data/test.csv', "EURUSD", "M5", point=0.00001, plot_results=True)
