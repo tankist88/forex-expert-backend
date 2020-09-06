@@ -142,7 +142,7 @@ def create_features(data, point):
     return new_data
 
 
-def read_data(files, instrument, period, point):
+def read_data(files, instrument, period, point, need_scale=True):
     data_frames = []
 
     for file in files:
@@ -152,7 +152,9 @@ def read_data(files, instrument, period, point):
     data = data.drop(columns=DROP_COLUMNS)
 
     scaler = StandardScaler()
-    scaler.fit(create_features(data, point))
+
+    if need_scale:
+        scaler.fit(create_features(data, point))
 
     frames_short = []
     frames_long = []
@@ -169,7 +171,10 @@ def read_data(files, instrument, period, point):
             frame.append(data.iloc[j])
         frame = np.asarray(frame)
 
-        scaled_data = scaler.transform(create_features(pd.DataFrame(frame), point))
+        if need_scale:
+            scaled_data = scaler.transform(create_features(pd.DataFrame(frame), point))
+        else:
+            scaled_data = create_features(pd.DataFrame(frame), point)
 
         if \
                 close1 - close0 > PRICE_DELTA or \
@@ -186,7 +191,7 @@ def read_data(files, instrument, period, point):
 
     frames_short = np.asarray(frames_short)
     frames_long = np.asarray(frames_long)
-    frames_other = shuffle(np.asarray(frames_other))[0: int(max(len(frames_short), len(frames_long)) * 2.5)]
+    frames_other = shuffle(np.asarray(frames_other))[0: int(max(len(frames_short), len(frames_long)) * 3)]
 
     y_short = get_labels(LABELS[0], (len(frames_short), 3))
     y_long = get_labels(LABELS[1], (len(frames_long), 3))
@@ -406,6 +411,12 @@ def test_model(data_file, instrument, period, point, plot_results=False):
     return true_predicts, false_predicts
 
 
+def feature_alanysis(features, labels):
+    short_vals = features[labels[:, [0]].reshape(len(labels), ) == 1]
+    long_vals = features[labels[:, [1]].reshape(len(labels), ) == 1]
+    print('stub')
+
+
 if __name__ == '__main__':
     features, labels = read_data(['data/train.csv'], "EURUSD", "M5", point=0.00001)
 
@@ -414,6 +425,8 @@ if __name__ == '__main__':
 
     with open('data/train_proc_data.pickle', 'rb') as f:
         (features, labels) = pickle.load(f)
+
+    feature_alanysis(features, labels)
 
     train_model(features, labels, "EURUSD", "M5")
     test_model('data/test.csv', "EURUSD", "M5", point=0.00001, plot_results=True)
