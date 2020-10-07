@@ -439,12 +439,12 @@ def feature_alanysis(features, labels, n_feature):
             ax[i][j].hist(create_array(vals, -j-1, n_feature), density=True, bins=40)
 
     fig.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.savefig("features_" + str(n_feature) + ".png")
+    plt.savefig("data/features_" + str(n_feature) + ".png")
     plt.close()
 
 
 if __name__ == '__main__':
-    features, labels = read_data(['data/train.csv'], "EURUSD", "M5", point=0.00001, need_scale=False)
+    features, labels = read_data(['data/train.csv'], "EURUSD", "M5", point=0.00001, need_scale=True)
 
     with open('data/train_proc_data.pickle', 'wb') as f:
         pickle.dump((features, labels), f)
